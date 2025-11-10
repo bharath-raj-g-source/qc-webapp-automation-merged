@@ -93,7 +93,7 @@ async def lifespan(app: FastAPI):
         # app.state.df = pd.read_csv(DATA_PATH / "Sales.csv" , index_col=0 , parse_dates= True)
         app.state.df = pd.DataFrame() # Placeholder if Sales.csv isn't available
     except Exception as e:
-        print(f"Warning: Could not load Sales.csv during startup: {e}")
+        print(f"Warning: Could not load laliga.csv during startup: {e}")
         app.state.df = pd.DataFrame() # Ensure state exists
         
     yield

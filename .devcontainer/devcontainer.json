@@ -1,33 +1,47 @@
 {
-  "name": "Python 3",
-  // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+  "name": "FastAPI Development",
+  // Base image provides Python 3.11 on Debian Bookworm
   "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bookworm",
+
   "customizations": {
     "codespaces": {
       "openFiles": [
         "README.md",
-        "frontend.py"
+        "main.py" // Change this to your FastAPI entry file (e.g., app.py)
       ]
     },
     "vscode": {
       "settings": {},
       "extensions": [
-        "ms-python.python",
-        "ms-python.vscode-pylance"
+        "ms-python.python",      // Official Python extension
+        "ms-python.vscode-pylance", // Pylance for performance and type checking
+        "ms-toolsai.jupyter"     // Useful if you include notebooks in your project
       ]
     }
   },
-  "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; pip3 install --user streamlit; echo '✅ Packages installed and Requirements met'",
+
+  // Command to run after the source code is cloned.
+  // Installs system packages (if packages.txt exists), installs Python dependencies,
+  // and specifically installs FastAPI and Uvicorn.
+  "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; pip3 install --user fastapi uvicorn",
+  
+  // Command to run after the editor is attached. This starts the FastAPI server.
+  // Assumes your FastAPI application object is named 'app' in 'main.py'.
+  // --host 0.0.0.0 is crucial for accessibility inside the container/codespace.
   "postAttachCommand": {
-    "server": "streamlit run frontend.py --server.enableCORS false --server.enableXsrfProtection false"
+    "server": "uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
   },
+  
+  // Attributes for port 8000 (FastAPI default)
   "portsAttributes": {
-    "8501": {
-      "label": "Application",
-      "onAutoForward": "openPreview"
+    "8000": {
+      "label": "FastAPI Application",
+      "onAutoForward": "openBrowser" // Automatically opens a browser tab
     }
   },
+  
+  // Ensures port 8000 is forwarded (accessible from your local machine/browser)
   "forwardPorts": [
-    8501
+    8000
   ]
 }

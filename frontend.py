@@ -139,7 +139,7 @@ with qc_tab:
 
 with sales_tab:
     st.header("LaligaData Management")
-    st.markdown("Upload a new `Sales.csv` file to the backend for analysis.")
+    st.markdown("Upload a new `laliga.csv` file to the backend for analysis.")
     
     st.subheader("1. Upload New LaligaData")
     sales_file = st.file_uploader("📄 Upload LaligaFile (.csv)", type=["csv"], key="sales_csv")
