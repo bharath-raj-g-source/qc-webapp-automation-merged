@@ -237,8 +237,12 @@ async def run_qc_checks(
 async def market_check_and_process(
     # BSR file (mandatory)
     bsr_file: UploadFile = File(..., description="BSR file for market-specific checks"),
-    # Obligation file (optional, only needed for F1 check)
+    # Obligation file (optional, for F1 check)
     obligation_file: Optional[UploadFile] = File(None, description="F1 Obligation file for broadcaster checks"), 
+    # NEW: Overnight file (optional, for Audience Update)
+    overnight_file: Optional[UploadFile] = File(None, description="Overnight Audience file for upscale/integrity check"), # <-- NEW PARAMETER
+    # NEW: Macro file (optional, for Channel Existence Check)
+    macro_file: Optional[UploadFile] = File(None, description="Macro BSA Market Duplicator file"), # <-- NEW PARAMETER
     # List of checks to run
     checks: List[str] = Form(..., description="List of selected check keys (e.g., 'remove_andorra')")
 ):
@@ -248,7 +252,9 @@ async def market_check_and_process(
     """
     
     bsr_file_path = os.path.join(UPLOAD_FOLDER, bsr_file.filename)
-    obligation_path = None # Initialize path for conditional use
+    obligation_path = None
+    overnight_path = None # <-- NEW PATH VARIABLE
+    macro_path = None # <-- NEW PATH VARIABLE
     
     # Generate a unique output filename that the frontend can use for download
     output_filename = f"Processed_BSR_{os.path.splitext(bsr_file.filename)[0]}_{int(time.time())}.xlsx"
@@ -266,28 +272,43 @@ async def market_check_and_process(
                 shutil.copyfileobj(obligation_file.file, buffer)
             print(f"Saved obligation file to: {obligation_path}")
 
-        # 3. Initialize Validator (Pass the obligation path here)
-        # BSRValidator now loads the BSR data and stores the obligation path for later use.
-        validator = BSRValidator(bsr_path=bsr_file_path, obligation_path=obligation_path) 
+        # 3. Save optional Overnight file
+        if overnight_file and overnight_file.filename: # <-- NEW LOGIC
+            overnight_path = os.path.join(UPLOAD_FOLDER, overnight_file.filename)
+            with open(overnight_path, "wb") as buffer:
+                shutil.copyfileobj(overnight_file.file, buffer)
+            print(f"Saved overnight file to: {overnight_path}")
+        
+        # 4. Save optional Macro file
+        if macro_file and macro_file.filename: # <-- NEW LOGIC
+            macro_path = os.path.join(UPLOAD_FOLDER, macro_file.filename)
+            with open(macro_path, "wb") as buffer:
+                shutil.copyfileobj(macro_file.file, buffer)
+            print(f"Saved macro rules file to: {macro_path}")
 
-        # 4. Apply selected checks and capture the list of structured summaries
+
+        # 4. Initialize Validator (Pass ALL optional paths here)
+        validator = BSRValidator(
+            bsr_path=bsr_file_path, 
+            obligation_path=obligation_path, 
+            overnight_path=overnight_path, # <-- PASSING NEW PATH
+            macro_path=macro_path # <-- PASSING NEW PATH
+        ) 
+
+        # 5. Apply selected checks and capture the list of structured summaries
         status_summaries = validator.market_check_processor(checks)
         
-        # 5. Access the modified DataFrame
+        # 6. Access and save the modified DataFrame
         df_processed = validator.df
         
-        # --- FIX: Ensure status_summaries contains only serializable dictionaries ---
+        # ... (File saving, JSON response, and error handling remain the same) ...
+
+        # 7. Construct the download URL and return the JSON response
         clean_summaries = [s for s in status_summaries if isinstance(s, dict)]
         if df_processed.empty:
              raise Exception("Processed DataFrame is empty after applying checks.")
 
-        # 6. Save the modified DataFrame to the output folder
         df_processed.to_excel(output_path, index=False)
-        # You may want to call color_excel/generate_summary_sheet here too, if applicable
-        # color_excel(output_path, df_processed)
-        # generate_summary_sheet(output_path, df_processed)
-
-        # 7. Construct the download URL and return the JSON response
         download_url = f"/api/download_file?filename={output_filename}" 
 
         return JSONResponse(content={
@@ -301,13 +322,17 @@ async def market_check_and_process(
         print(f"Market Check Error: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred during market checks: {str(e)}")
     finally:
-        # Ensure file streams are closed
+        # Ensure file streams are closed and cleanup is run
         await bsr_file.close()
         if obligation_file:
             await obligation_file.close()
+        if overnight_file: # <-- CLOSE NEW STREAM
+            await overnight_file.close()
+        if macro_file: # <-- CLOSE NEW STREAM
+            await macro_file.close()
             
         # IMPORTANT: Clean up uploaded source files immediately
-        for path in [bsr_file_path, obligation_path]:
+        for path in [bsr_file_path, obligation_path, overnight_path]: # <-- ADD NEW PATH TO CLEANUP
             if path and os.path.exists(path):
                 os.remove(path)
 

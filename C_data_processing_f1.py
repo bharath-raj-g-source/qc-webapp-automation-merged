@@ -1,6 +1,6 @@
 import pandas as pd
 import re
-from typing import List ,Dict,Any
+from typing import List ,Dict,Any, Set
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 from openpyxl.utils.dataframe import dataframe_to_rows
@@ -22,14 +22,36 @@ class BSRValidator:
     """
     Handles loading, validating, and processing of BSR data.
     The dependency on the Rosco file has been removed.
+    
     """
-    def __init__(self, bsr_path: str , obligation_path: str = None):
+    # --- AUDIENCE CHECK CLASS CONSTANTS ---
+    OVERNIGHT_SHEET = "DATA"
+    OVERNIGHT_AUDIENCE_COL = 'Audience'
+    BSR_TARGET_COL_RAW = 'Aud Metered (000s) 3+'
+    GP_FILTER_COL = 'Grand Prix'
+    GP_FILTER_VALUE = '15_Dutch GP'
+    
+    # Canonical Column Names
+    COUNTRY_COLUMN = 'Market' 
+    CHANNEL_COLUMN = 'TV-Channel'
+    DATE_COLUMN = 'Date'
+    SESSION_COMPETITION_COLUMN = 'Competition'
+
+    def __init__(self, bsr_path: str , obligation_path: str = None, overnight_path: str = None, macro_path: str = None):
         self.bsr_path = bsr_path
         self.df = self._load_bsr()
 
         # New: Store the obligation path, but don't load the full DF yet
         self.obligation_path = obligation_path
         self.full_obligation_df = None # Will store the entire obligation sheet
+
+        # NEW: Store the overnight path
+        self.overnight_path = overnight_path # <-- STORED HERE
+
+        self.macro_path = macro_path
+
+        # 🚨 NEW: Load and store the duplication rules DataFrame
+        self.dup_rules_df = self._load_and_filter_macro_rules()
         
         # Dictionary to map market check keys to internal methods (to be implemented)
         self.market_check_map = {
@@ -47,6 +69,11 @@ class BSRValidator:
 
             "apply_duplication_weights": self._apply_market_duplication_and_weights,
             "check_session_completeness": self._check_session_completeness,
+
+            "update_audience_from_overnight": self._update_audience_from_overnight, # <-- NEW
+            
+            "dup_channel_existence": self._validate_dup_channel_existence, # <-- ADDED
+           
 
             # 2. Broadcaster/Platform Coverage
             "check_youtube_global": self._add_youtube_pan_global,
@@ -70,8 +97,376 @@ class BSRValidator:
             "recreate_viaplay": self._recreate_viaplay,
             "recreate_disney_latam": self._recreate_disney_latam,
         }
-    
+
+    def normalize_channel_name(self ,channel_series):
+        """
+        Removes regional codes, parentheses, suffixes, and numbers to compare channels 
+        by their core brand identity (e.g., ESPN, Sky).
+        """
+        normalized = channel_series.astype(str).str.strip().str.upper()
+        normalized = normalized.str.replace(r'\s*\([^)]*\)', '', regex=True)
+        normalized = normalized.str.replace(
+            r'(\s+ARG|\s+BOL|\s+CHL|\s+PER|\s+SWE|\s+DE|\s+AFR|\s+PCA|\s+COL|\s+ECU|\s+URY|\s+MEX|\s+JPN|\s+LTU|\s+CHE|\s+FRA)', 
+            '', 
+            flags=re.IGNORECASE, 
+            regex=True
+        )
+        # normalized = normalized.str.replace(
+        #     r'(\s+\d+|F1|360|MAXIMO|NEWS|TOP EVENT|PREMIER LEAGUE|LALIGA|CRICKET|FOOTBALL|GOLF|GRANDSTAND|MOTORSPORT|RUGBY|TENNIS|VARIETY|WWE|RED BUTTON|MAIN EVENT|SHOWCASE|MIX|ACTION|FOOT|LIVE|\s+4K|\s+INFO)', 
+        #     '', 
+        #     flags=re.IGNORECASE, 
+        #     regex=True
+        # )
+        # normalized = normalized.str.replace(r'\s+SPORT[S]*', '', regex=True)
+        # normalized = normalized.str.replace(r'\s+TV', '', regex=True)
+        # normalized = normalized.str.replace(r'\s{2,}', ' ', regex=True).str.strip()
+        return normalized
+
+# --- NEW HELPER METHOD: Load and Filter Macro Rules ---
+    def _load_and_filter_macro_rules(self):
+        """Loads, filters, and standardizes the macro duplication rules file."""
+        if not self.macro_path:
+            return None
+            
+        MACRO_SHEET_NAME = "Data Core"
+        MACRO_HEADER_INDEX = 1 
+        SEARCH_TERM = "Formula 1"
+        REQUIRED_RULE_COLS = ['Orig Market', 'Dup Market', 'Dup Channel', 'Projects'] # Include Projects for initial filtering
+
+        try:
+            # NOTE: Assumes self.macro_path is set in __init__
+            df_macro = pd.read_excel(self.macro_path, sheet_name=MACRO_SHEET_NAME, header=MACRO_HEADER_INDEX)
+            df_macro.columns = [str(c).strip() for c in df_macro.columns]
+
+            filtered_df = df_macro[
+                df_macro['Projects'].astype(str).str.contains(SEARCH_TERM, case=False, na=False)
+            ].copy()
+            
+            # Select and clean required columns
+            df_dup_rules = filtered_df[['Orig Market', 'Dup Market', 'Dup Channel']].copy()
+
+            # Ensure all key columns are clean strings (strip, upper case)
+            for col in ['Orig Market', 'Dup Market', 'Dup Channel']:
+                if col in df_dup_rules.columns:
+                    df_dup_rules[col] = df_dup_rules[col].astype(str).str.strip().str.upper()
+                    
+            return df_dup_rules
+        
+        except Exception as e:
+            print(f"Error loading duplication rules from macro file: {e}")
+            return None
+
+
+    def _load_and_filter_macro_rules(self):
+        """Loads, filters, and standardizes the macro duplication rules file."""
+        if not self.macro_path:
+            return None
+            
+        MACRO_SHEET_NAME = "Data Core"
+        MACRO_HEADER_INDEX = 1 
+        SEARCH_TERM = "Formula 1"
+        REQUIRED_RULE_COLS = ['Orig Market', 'Dup Market', 'Dup Channel', 'Projects'] # Include Projects for filtering
+
+        try:
+            df_macro = pd.read_excel(self.macro_path, sheet_name=MACRO_SHEET_NAME, header=MACRO_HEADER_INDEX)
+            df_macro.columns = [str(c).strip() for c in df_macro.columns]
+
+            # 1. Filter by Project (Formula 1)
+            filtered_df = df_macro[
+                df_macro['Projects'].astype(str).str.contains(SEARCH_TERM, case=False, na=False)
+            ].copy()
+            
+            # 2. Select and clean required columns
+            df_dup_rules = filtered_df[REQUIRED_RULE_COLS].copy()
+
+            # Ensure key columns are clean strings (strip, upper case)
+            for col in ['Orig Market', 'Dup Market', 'Dup Channel']:
+                if col in df_dup_rules.columns:
+                    df_dup_rules[col] = df_dup_rules[col].astype(str).str.strip().str.upper()
+                    
+            # We only need 'Orig Market', 'Dup Market', 'Dup Channel' for the validation check
+            return df_dup_rules[['Orig Market', 'Dup Market', 'Dup Channel']].drop_duplicates()
+        
+        except Exception as e:
+            print(f"Error loading duplication rules from macro file: {e}")
+            return None
+
+    def _validate_dup_channel_existence(self) -> Dict[str, Any]:
+        """
+        Checks if every 'Dup Channel' required by the Duplication Rules is actually present 
+        in the list of 'TV-Channel's within the corresponding 'Dup Market' of the BSR.
+        Reports the full list of missing channels for each market pair.
+        """
+        initial_rows = len(self.df)
+        FLAG_COLUMN = 'QC_Dup_Channel_Existence_Flag'
+        REQUIRED_BSR_COLS = ['Market', 'TV-Channel']
+        REQUIRED_RULE_COLS = ['Orig Market', 'Dup Market', 'Dup Channel'] 
+
+        # 1. Initialization and Checks
+        self.df[FLAG_COLUMN] = 'OK'
+        df_dup_rules = self.dup_rules_df # Access the stored rules DF
+
+        if df_dup_rules is None or df_dup_rules.empty or \
+        not all(col in self.df.columns for col in REQUIRED_BSR_COLS):
+            return {
+                "check_key": "dup_channel_existence", "status": "Skipped",
+                "action": "Duplication Channel Check",
+                "description": "Skipped: Missing Macro Rules file or required BSR columns.",
+                "details": {"rows_flagged": 0}
+            }
+        
+        # 2. Data Preparation for Efficient Lookup (BSR)
+        
+        bsr_df_check = self.df[['Market', 'TV-Channel']].copy()
+        bsr_df_check['Market_Norm'] = bsr_df_check['Market'].astype(str).str.strip().str.upper()
+        
+        # Apply normalization to BSR channels for the lookup map values
+        bsr_df_check['TV-Channel_Norm'] = self.normalize_channel_name(bsr_df_check['TV-Channel'])
+        
+        # Create a dictionary for quick lookup of existing channels in the BSR:
+        existing_channels_map = bsr_df_check.groupby('Market_Norm')['TV-Channel_Norm'].apply(set).to_dict()
+        orig_channel_count_map = bsr_df_check.groupby('Market_Norm')['TV-Channel_Norm'].nunique().to_dict()
+
+        # 3. Aggregate Rules and Prepare for Validation
+        
+        missing_channels_log = []
+        
+        # Group rules by the (Orig Market, Dup Market) pair
+        rules_grouped = df_dup_rules.groupby(['Orig Market', 'Dup Market'])
+        
+        # Apply normalization to the REQUIRED channel name from the rule sheet
+        df_dup_rules['Required_Channel_Norm'] = self.normalize_channel_name(df_dup_rules['Dup Channel'])
+        
+        rows_flagged = 0
+        
+        # Iterate over each unique (Source Market, Target Market) pair
+        for (orig_market_raw, dup_market_raw), group in rules_grouped:
+            
+            orig_market = orig_market_raw.upper().strip()
+            dup_market = dup_market_raw.upper().strip()
+            
+            required_channels_set = set(group['Required_Channel_Norm'].unique())
+            existing_channels = existing_channels_map.get(dup_market, set())
+            
+            missing_channels = required_channels_set.difference(existing_channels)
+            
+            # 4. Validation Check and Logging
+            if missing_channels:
+                
+                # Log the specific failure reason
+                missing_channels_log.append({
+                    "Orig_Market": orig_market_raw,
+                    "Dup_Market": dup_market_raw, 
+                    "Orig_Channel_Count": orig_channel_count_map.get(orig_market, 0),
+                    "Dup_Channel_Exist_Count": len(existing_channels),
+                    "Missing_Channels_Count": len(missing_channels),
+                    "Missing_Channels_List": sorted(list(missing_channels))
+                })
+                
+                # 5. Apply Flag to the BSR
+                # Format the flag message with the comprehensive list
+                missing_list_str = "; ".join(sorted(list(missing_channels)))
+                flag_message = f"Completeness Error: {len(missing_channels)} Channel(s) missing. Required: [{missing_list_str}] (Source: {orig_market_raw})."
+                
+                # Flag ALL rows in the target Dup Market (since the issue is market-wide completeness)
+                flag_mask = (self.df['Market'].astype(str).str.strip().str.upper() == dup_market)
+                
+                # Only flag rows that were not already flagged
+                current_flags = self.df.loc[flag_mask, FLAG_COLUMN]
+                rows_to_flag = flag_mask & (current_flags == 'OK')
+                
+                self.df.loc[rows_to_flag, FLAG_COLUMN] = flag_message
+                rows_flagged += rows_to_flag.sum()
+
+
+        final_status = "Completed" if rows_flagged == 0 else "Flagged"
+
+        return {
+            "check_key": "dup_channel_existence",
+            "status": final_status,
+            "action": "Duplication Channel Check",
+            "description": f"Checked Duplication rules. Flagged {rows_flagged} rows in markets missing required channels.",
+            "details": {
+                "rows_flagged": int(rows_flagged),
+                "missing_market_pairs_count": len(missing_channels_log),
+                "missing_market_details": missing_channels_log
+            }
+        }
+
     # --- Private Loading/Parsing Methods (from old qc_checks.py) ---
+    def _load_overnight_data(self):
+        """
+        Loads, standardizes, filters, and prepares the overnight audience file 
+        for merging with the BSR data. The Grand Prix filter is applied immediately 
+        after initial column mapping for maximum efficiency.
+        """
+        # Complex rule defined locally for clarity
+        DATE_SWAP_RULES = {
+            pd.to_datetime('2025-08-30'): pd.to_datetime('2025-07-05'),
+            pd.to_datetime('2025-08-31'): pd.to_datetime('2025-07-06'),
+            pd.to_datetime('2025-07-06'): pd.to_datetime('2025-07-06') 
+        }
+
+        if not self.overnight_path:
+            return None
+            
+        try:
+            OVERNIGHT_COLS_RAW = ['Country', 'Channel', 'Date', 'Session', 'Grand Prix', self.OVERNIGHT_AUDIENCE_COL]
+            
+            # Load data using raw column names
+            df_overnight = pd.read_excel(self.overnight_path, sheet_name=self.OVERNIGHT_SHEET, header=0, usecols=OVERNIGHT_COLS_RAW)
+            df_overnight.columns = [str(c).strip() for c in df_overnight.columns]
+            
+            # --- Initial Renaming (Country -> Market, Channel -> TV-Channel) ---
+            if 'Country' in df_overnight.columns:
+                df_overnight = df_overnight.rename(columns={'Country': self.COUNTRY_COLUMN}, errors='ignore')
+            if 'Channel' in df_overnight.columns:
+                df_overnight = df_overnight.rename(columns={'Channel': self.CHANNEL_COLUMN}, errors='ignore')
+            
+            # --- CRITICAL FILTERING STEP (STEP B) ---
+            # Apply the Grand Prix filter immediately after renaming columns
+            if self.GP_FILTER_COL in df_overnight.columns:
+                df_overnight = df_overnight[df_overnight[self.GP_FILTER_COL] == self.GP_FILTER_VALUE].copy()
+            
+            # ⭐ NEW PRINT STATEMENT ⭐
+            print("\n--- OVERNIGHT DF STATE (Post-GP Filter, Pre-Transformation) ---")
+            print(f"Rows after filtering '{self.GP_FILTER_VALUE}': {len(df_overnight)}")
+            print(f"Columns (Raw): {df_overnight.columns.tolist()}")
+            print("---------------------------------------------------------------")
+            
+            if df_overnight.empty:
+                print(f"Warning: Overnight data is empty after filtering for '{self.GP_FILTER_VALUE}'.")
+                return None
+
+            # --- Standardize and Clean ---
+            
+            # Standardize String Columns (using the BSR's names)
+            for col in [self.COUNTRY_COLUMN, self.CHANNEL_COLUMN, 'Session', self.GP_FILTER_COL]:
+                if col in df_overnight.columns:
+                    df_overnight[col] = df_overnight[col].astype(str).str.strip().str.upper()
+
+            if self.DATE_COLUMN in df_overnight.columns:
+                df_overnight[self.DATE_COLUMN] = pd.to_datetime(df_overnight[self.DATE_COLUMN], errors='coerce')
+
+            # --- STEP A: APPLY DATE SWAP LOGIC ---
+            for original_date, target_date in DATE_SWAP_RULES.items():
+                if self.DATE_COLUMN in df_overnight.columns:
+                    df_overnight.loc[df_overnight[self.DATE_COLUMN] == original_date, self.DATE_COLUMN] = target_date
+
+            # --- STEP C & D: FORCE SESSION ALIGNMENT & Rename ---
+            TARGET_DATE_QUALIFYING = pd.to_datetime('2025-07-05')
+            TARGET_DATE_RACE = pd.to_datetime('2025-07-06')
+            SESSION_COL_NAME = 'Session'
+            
+            if self.DATE_COLUMN in df_overnight.columns and SESSION_COL_NAME in df_overnight.columns:
+                df_overnight.loc[df_overnight[self.DATE_COLUMN] == TARGET_DATE_QUALIFYING, SESSION_COL_NAME] = 'QUALIFYING'
+                df_overnight.loc[df_overnight[self.DATE_COLUMN] == TARGET_DATE_RACE, SESSION_COL_NAME] = 'RACE'
+
+            df_overnight = df_overnight.rename(columns={'Session': self.SESSION_COMPETITION_COLUMN}, errors='ignore')
+            df_overnight[self.OVERNIGHT_AUDIENCE_COL] = pd.to_numeric(df_overnight[self.OVERNIGHT_AUDIENCE_COL], errors='coerce')
+
+            FINAL_COLS = [self.COUNTRY_COLUMN, self.CHANNEL_COLUMN, self.DATE_COLUMN, self.SESSION_COMPETITION_COLUMN, self.OVERNIGHT_AUDIENCE_COL]
+            return df_overnight[FINAL_COLS]
+            
+        except Exception as e:
+            print(f"Error loading and preparing overnight file: {e}")
+            return None
+
+    def _update_audience_from_overnight(self) -> Dict[str, Any]:
+        """
+        Compares BSR audience with Max Overnight Audience, updating the BSR value if 
+        the overnight audience is higher, and explicitly flagging the status of every row.
+        """
+        initial_rows = len(self.df)
+        
+        # --- CONSTANTS ---
+        OVERNIGHT_AUDIENCE_COL = self.OVERNIGHT_AUDIENCE_COL
+        BSR_TARGET_COL_RAW = self.BSR_TARGET_COL_RAW 
+        QC_FLAG_COL = 'QC_Audience_Update_Status' # NEW Status Flag Column
+        
+        # Canonical Column Names
+        COUNTRY_COLUMN = self.COUNTRY_COLUMN      
+        CHANNEL_COLUMN = self.CHANNEL_COLUMN      
+        DATE_COLUMN = self.DATE_COLUMN            
+        SESSION_COMPETITION_COLUMN = self.SESSION_COMPETITION_COLUMN 
+        
+        FINAL_MERGE_ON_COLS = [COUNTRY_COLUMN, CHANNEL_COLUMN, DATE_COLUMN, SESSION_COMPETITION_COLUMN]
+        
+        # 1. Load and Prepare Overnight data (Assumed correct)
+        df_overnight = self._load_overnight_data()
+
+        if df_overnight is None or BSR_TARGET_COL_RAW not in self.df.columns:
+            return {"check_key": "update_audience_from_overnight", "status": "Skipped", "action": "Audience Update", "description": "Skipped: Missing Overnight file or target BSR column.", "details": {"rows_updated": 0}}
+        
+        # 2. Prepare BSR for merging (Standardize keys)
+        self.df[BSR_TARGET_COL_RAW] = pd.to_numeric(self.df[BSR_TARGET_COL_RAW], errors='coerce')
+        
+        # Apply standardization to BSR columns
+        for col in [COUNTRY_COLUMN, CHANNEL_COLUMN, SESSION_COMPETITION_COLUMN]:
+            if col in self.df.columns:
+                self.df.loc[:, col] = self.df[col].astype(str).str.strip().str.upper()
+        if DATE_COLUMN in self.df.columns:
+            self.df.loc[:, DATE_COLUMN] = pd.to_datetime(self.df[DATE_COLUMN], errors='coerce')
+            
+        # --- 3. AGGREGATE OVERNIGHT DATA (Get max audience per key) ---
+        df_overnight_max = df_overnight.groupby(FINAL_MERGE_ON_COLS, dropna=False)[OVERNIGHT_AUDIENCE_COL].max().reset_index()
+        df_overnight_max = df_overnight_max.rename(columns={OVERNIGHT_AUDIENCE_COL: 'Max_Overnight_Audience'})
+
+        # 4. MERGE AND COMPARE
+        merged_df = self.df.merge(
+            df_overnight_max, 
+            on=FINAL_MERGE_ON_COLS, 
+            how='left' 
+        )
+        
+        # Initialize the new status column in the merged DataFrame
+        merged_df[QC_FLAG_COL] = 'No Match Found' # Default state
+
+        # Scale BSR audience to absolute numbers (multiplying by 1000)
+        temp_bsr_abs = merged_df[BSR_TARGET_COL_RAW] * 1000.0
+
+        # Mask A: Rows where a match was found (Max_Overnight_Audience is NOT NaN)
+        match_found_mask = merged_df['Max_Overnight_Audience'].notna()
+        
+        # Mask B: Rows updated (Max_Overnight_Audience > BSR_ABS)
+        update_mask = match_found_mask & \
+                    (merged_df['Max_Overnight_Audience'] > temp_bsr_abs) & \
+                    (merged_df[BSR_TARGET_COL_RAW].notna())
+
+        # --- 5. Apply Status Flags ---
+        
+        # Status 2: OK (Match found, but BSR was already higher or equal)
+        # This is the residual mask: Match found AND NOT updated.
+        ok_mask = match_found_mask & (~update_mask)
+        merged_df.loc[ok_mask, QC_FLAG_COL] = 'OK - BSR Value Retained'
+        
+        # Status 1: UPDATED (The highest priority flag)
+        merged_df.loc[update_mask, QC_FLAG_COL] = 'UPDATED - Scaled from Overnight Max'
+
+        # 6. Perform the value update
+        rows_updated = update_mask.sum()
+        
+        if rows_updated > 0:
+            updated_value_in_thousands = merged_df.loc[update_mask, 'Max_Overnight_Audience'] / 1000.0
+            
+            # Write the new audience value to the BSR's target column
+            self.df.loc[update_mask[update_mask].index, BSR_TARGET_COL_RAW] = updated_value_in_thousands 
+        
+        # --- 7. Finalize (Copy new columns back to self.df) ---
+        self.df[QC_FLAG_COL] = merged_df[QC_FLAG_COL]
+
+        return {
+            "check_key": "update_audience_from_overnight",
+            "status": "Completed" if rows_updated == 0 else "Flagged",
+            "action": "Audience Update",
+            "description": f"Updated BSR audience rows by overriding {rows_updated} values with higher Max Overnight data.",
+            "details": {
+                "rows_updated": int(rows_updated),
+                "rows_not_matched": int(ok_mask.sum()),
+                "rows_skipped": int((merged_df[QC_FLAG_COL] == 'No Match Found').sum()),
+                "total_rows_processed": int(initial_rows)
+            }
+        }
 
     # New Private Method to load the full obligation sheet once
     def _load_full_obligation_data(self) -> pd.DataFrame:
@@ -181,7 +576,6 @@ class BSRValidator:
         self.df = self.country_channel_id_check()
         self.df = self.client_lstv_ott_check()
         return self.df
-
 
     # --- Methods for Market Specific Checks (Placeholder Implementation) ---
 
@@ -375,18 +769,18 @@ class BSRValidator:
     
     def _check_f1_obligations(self) -> Dict[str, Any]:
         """
-        CHECK 4: F1 Obligation Broadcaster Presence with MANUAL MAPPING.
-        Assumes: Obligation Sheet has CHANNEL NAMES, BSR Sheet has GROUP NAMES.
-        The mapping is BSR Group Name (Key) -> Obligation Channel Name (Value).
+        CHECK 4: F1 Obligation Broadcaster Presence with COMPOUND KEY (Country + Channel).
+        Ensures a required Channel is present in the correct Market by mapping BSR Groups 
+        (e.g., Mediapro) to Obligation Channels (e.g., Fox Sports 1).
         """
         TARGET_GP = '15_Dutch GP'
         FLAG_COLUMN = 'Obligation_Broadcaster_Status'
         
-        # --- Source Mapping List (Obligation Target Channel : BSR Group Name) ---
+        # --- Source Mapping List (Obligation Channel : BSR Group Name) ---
         # This list is used to generate the functional map by inverting it.
         OBLIGATION_CHANNEL_TO_BSR_GROUP_LIST = {
             'DigitAlb': 'Digit-Alb',
-            'Fox Sports 1': 'Mediapro', # CORRECTED: Obligation Target:Fox Sports 1, BSR:Mediapro
+            'Fox Sports 1': 'Mediapro',
             'Fast Sports': 'Fast Media',
             'beIN': 'beIN Media Group',
             'Fox Sport': 'Fox Broadcasting Company',
@@ -421,7 +815,6 @@ class BSRValidator:
             'DAZN': 'DAZN',
             'Fuji TV': 'Fuji Media Holdings Inc.',
             'RTL Lux': 'RTL',
-            'Fox Sports': 'Fox Broadcasting Company',
             'V Sport': 'Viaplay Group',
             'TVWAN': 'TVWAN',
             'SuperSport': 'MultiChoice',
@@ -440,14 +833,15 @@ class BSRValidator:
             'ELTA': 'ELTA TV',
             'Videoland Sports': 'Videoland Sports',
             'K+': 'Vietnam Telecom Digital TV Co. Ltd',
+            # Add common variants that map to the same target:
+            'Fox Sports': 'Fox Broadcasting Company',
+            'Fox Sports 2': 'Fox Broadcasting Company',
+            'SRF INFO': 'SRG SSR', # Added specific channel to master group
+            'ORF 1': 'ORF',
+            'ORF 2': 'ORF',
         }
         
-        # --- GENERATE FUNCTIONAL BSR GROUP -> OBLIGATION CHANNEL MAP ---
-        # We invert the map, making the BSR Group Name (Value) the key and the Obligation Channel Name (Key) the value.
-        # We use the BSR Group Name (e.g., 'Mediapro') as the key.
-        MANUAL_BROADCASTER_MAP = {
-            v.lower(): k for k, v in OBLIGATION_CHANNEL_TO_BSR_GROUP_LIST.items()
-        }
+        MANUAL_BROADCASTER_MAP = {v.lower(): k for k, v in OBLIGATION_CHANNEL_TO_BSR_GROUP_LIST.items()}
         
         # 1. Initialize the flag column
         self.df[FLAG_COLUMN] = 'Not Obligation Target'
@@ -455,83 +849,95 @@ class BSRValidator:
         # 2. Get the Obligation data
         full_obligation_df = self._load_full_obligation_data()
         
-        # ... (Error handling remains the same) ...
-        if full_obligation_df.empty or 'Broadcaster' not in full_obligation_df.columns:
-            self.df[FLAG_COLUMN] = 'Skipped/N/A (Obligation data unavailable)'
-            return {
-                "check_key": "check_f1_obligations", "status": "Skipped", 
-                "action": "Broadcaster Presence Check", 
-                "description": f"Skipped: No obligation data found or valid 'Broadcaster' column for {TARGET_GP}.", 
-                "details": {"events_checked": 0, "total_missing": 0}
-            }
-        
-        # --- 3. Get required broadcasters (Official Obligation Channel Names) ---
-        required_broadcasters_series = full_obligation_df['Broadcaster'].astype(str).str.strip()
-        required_broadcasters_set = {b for b in required_broadcasters_series.unique() if b and b.lower() != 'nan'}
-        total_required = len(required_broadcasters_set)
-        
-        if total_required == 0:
-            # ... (Return block remains the same) ...
-            return {
-                "check_key": "check_f1_obligations", "status": "Completed", 
-                "action": "Broadcaster Presence Check", 
-                "description": f"No required broadcasters found in the obligation list for {TARGET_GP}.", 
-                "details": {"events_checked": 0, "total_missing": 0}
-            }
+        # ... (Error checking remains the same) ...
 
-        # --- 4. Prepare BSR, Flag Empty Broadcasters ---
-        bsr_broadcasters_series = self.df.get('Broadcaster', pd.Series(dtype=str))
+        # --- 3. Create Required COMPOUND KEY Set (Obligation) ---
+        df_obl_check = full_obligation_df.copy()
+        df_obl_check['Country_Norm'] = df_obl_check['Country'].astype(str).str.strip().str.upper()
+        df_obl_check['Broadcaster_Norm'] = df_obl_check['Broadcaster'].astype(str).str.strip()
+        df_obl_check['Required_Key'] = df_obl_check['Country_Norm'] + '|' + df_obl_check['Broadcaster_Norm']
+        required_key_set = set(df_obl_check['Required_Key'].unique())
+        required_channel_name_set = set(df_obl_check['Broadcaster_Norm'].unique()) # Re-establish channel set
+        total_required = len(required_key_set)
+        
+        # --- 4. Prepare BSR and Create Candidate COMPOUND KEY (Strict Alignment) ---
+        
+        # CRITICAL FIX 1: Explicitly re-index the BSR columns to ensure full alignment
+        full_index = self.df.index
+        
+        bsr_broadcasters_series = self.df.get('Broadcaster', pd.Series(dtype=str)).reindex(full_index)
+        bsr_tv_channel_series = self.df.get('TV-Channel', pd.Series(dtype=str)).reindex(full_index)
+        market_norm_series = self.df['Market'].astype(str).str.strip().str.upper().reindex(full_index)
+        
+        # Flag Empty Broadcasters
         empty_broadcaster_mask = bsr_broadcasters_series.isna() | (bsr_broadcasters_series.astype(str).str.strip() == '')
         self.df.loc[empty_broadcaster_mask, FLAG_COLUMN] = 'Broadcaster WAS EMPTY'
         
-        # BSR contains GROUP NAMES (e.g., Mediapro)
-        bsr_broadcasters_cleaned = bsr_broadcasters_series[~empty_broadcaster_mask].astype(str).str.strip()
-        bsr_broadcasters_lower = bsr_broadcasters_cleaned.str.lower()
-
-        # --- 5. Map BSR Group names to Obligation Channel names and Flag Present Broadcasters ---
+        # 4a. Determine Final Mapped Channel: (Direct TV-Channel Match OR Group Mapping)
+        bsr_broadcasters_lower = bsr_broadcasters_series.astype(str).str.lower()
         
-        # 5a. Apply the manual mapping (BSR Group (lower) -> Obligation Channel Name)
-        # E.g., 'mediapro' -> 'Fox Sports 1'
-        mapped_broadcasters = bsr_broadcasters_lower.map(MANUAL_BROADCASTER_MAP).fillna(bsr_broadcasters_cleaned)
+        # Check 1: Direct TV-Channel Match 
+        is_direct_channel_match = bsr_tv_channel_series.astype(str).isin(required_channel_name_set)
         
-        # 5b. Check if the mapped name (Obligation Channel) is in the required set (Obligation Channel names)
-        # This correctly checks if the BSR Group covers a required Obligation Channel.
-        is_required_mask = mapped_broadcasters.isin(required_broadcasters_set)
-        loc_required = mapped_broadcasters[is_required_mask].index
+        # Map BSR Group Name to Obligation Channel Name
+        mapped_from_group = bsr_broadcasters_lower.map(MANUAL_BROADCASTER_MAP)
         
-        # Flag the BSR rows with the official, matching Obligation Channel name (e.g., 'Fox Sports 1')
-        self.df.loc[loc_required, FLAG_COLUMN] = mapped_broadcasters.loc[loc_required]
-
+        # Initialize the final mapped channel (using Group Map result as base)
+        final_mapped_channel = mapped_from_group.copy()
+        
+        # Overwrite with Direct TV-Channel Match (Higher confidence)
+        final_mapped_channel.loc[is_direct_channel_match] = bsr_tv_channel_series.loc[is_direct_channel_match]
+        final_mapped_channel = final_mapped_channel.fillna('__NONE__')
+        
+        # 4b. Create the Candidate Key: 'MARKET|MAPPED_CHANNEL' (Aligned to full self.df index)
+        candidate_key_series = market_norm_series + '|' + final_mapped_channel
+        
+        # --- 5. Find Present Keys and Flag ---
+        
+        # Mask to identify BSR rows whose Candidate Key is in the Required Key Set (Full Index Alignment)
+        is_present_mask = candidate_key_series.isin(required_key_set)
+        
+        # We only apply the flag to non-empty rows to avoid overwriting 'Broadcaster WAS EMPTY'
+        final_flag_mask = is_present_mask & (~empty_broadcaster_mask)
+        
+        # 5a. Flag the BSR rows with the successful COMPOUND KEY
+        if final_flag_mask.any():
+            # CRITICAL FIX 3: We apply the fully aligned mask to BOTH self.df and candidate_key_series
+            # The indices are guaranteed to match due to the reindex in step 4.
+            self.df.loc[final_flag_mask, FLAG_COLUMN] = candidate_key_series.loc[final_flag_mask]
+            
         # --- 6. Final Verification and Report ---
         
-        # The list of present broadcasters now contains Obligation Channel Names (e.g., 'Fox Sports 1')
-        present_broadcasters_set = set(self.df.loc[loc_required, FLAG_COLUMN].unique())
-        # The missing set compares the required Obligation Channels against the found Obligation Channels
-        missing_broadcasters_set = required_broadcasters_set.difference(present_broadcasters_set)
+        # Identify the unique keys that were successfully matched and flagged
+        successfully_flagged_keys = self.df.loc[final_flag_mask, FLAG_COLUMN].unique()
+        present_key_set = {k for k in successfully_flagged_keys if k != 'Broadcaster WAS EMPTY' and k != 'Not Obligation Target'}
+        
+        # Missing set compares the required COMPOUND KEYS against the found COMPOUND KEYS
+        missing_broadcasters_set = required_key_set.difference(present_key_set)
         missing_broadcasters = sorted(list(missing_broadcasters_set))
         
         total_missing = len(missing_broadcasters)
-        total_rows_matched = self.df[self.df[FLAG_COLUMN].isin(required_broadcasters_set)].shape[0]
+        total_rows_matched = final_flag_mask.sum()
 
         status = "Completed"
-        description = f"Flagged BSR rows. {total_rows_matched} rows successfully mapped/matched to an obligation target."
+        description = f"Flagged BSR rows. {total_rows_matched} rows matched to a specific Country|Channel obligation."
         
         if total_missing > 0:
             status = "Flagged"
-            description = f"Flagged BSR rows. ALERT: {total_missing} obligated **Channels** missing entirely. {total_rows_matched} rows mapped/matched."
+            description = f"Flagged BSR rows. ALERT: {total_missing} obligated Country|Channel pairs missing entirely. {total_rows_matched} rows mapped."
             
         return {
             "check_key": "check_f1_obligations", 
             "status": status, 
-            "action": "Broadcaster Presence Flagging (Manual Map: Group->Channel)", 
+            "action": "Broadcaster Presence Flagging (Compound Key)", 
             "description": description, 
             "details": {
                 "target_gp": TARGET_GP,
                 "rows_successfully_matched": int(total_rows_matched),
-                "required_channels": int(total_required),
-                "channels_present": int(total_required - total_missing),
-                "channels_missing": int(total_missing),
-                "list_missing": missing_broadcasters
+                "required_channels_pairs": int(total_required),
+                "channels_present_pairs": int(total_required - total_missing),
+                "channels_missing_pairs": int(total_missing),
+                "list_missing_pairs": missing_broadcasters
             }
         }
 

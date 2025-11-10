@@ -32,7 +32,10 @@ all_market_check_keys = {
     "impute_program_type": "Impute Program Type: Assign Live/Repeat/Highlights/Support based on time matching",
     "duration_limits": "Duration Limits Check: Flag broadcasts outside 5 minutes to 5 hours (QC)",
     "live_date_integrity": "Live Session Date Integrity: Check Live Race/Quali/Train against fixed schedule date",
-    
+    "update_audience_from_overnight": "Audience Upscale Check: Update BSR with higher Max Overnight data", 
+    # NEW CHECK
+    "dup_channel_existence": "Duplication Channel Existence: Check if all target channels are in BSR",
+
     # 2. Broadcaster/Platform Coverage
     "check_youtube_global": "YOUTUBE: ADD YOUTUBE AS PAN-GLOBAL (CPT 8.14)",
     "check_pan_mena": "Pan MENA: BROADCASTER",
@@ -242,12 +245,15 @@ with market_checks_tab:
     st.markdown("Upload the **BSR file** and the **F1 Obligation file** here to perform and log manual checks.")
 
     # --- Dedicated Upload for Manual Checks (MODIFIED) ---
-    col_file1, col_file2 = st.columns(2)
+    col_file1, col_file2, col_file3,col_file4 = st.columns(4) # <-- Increase columns to 3
     with col_file1:
         market_check_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="market_check_file")
     with col_file2:
-        # NEW UPLOADER FOR OBLIGATION FILE
         obligation_file = st.file_uploader("📄 Upload F1 Obligation File (.xlsx)", type=["xlsx"], key="obligation_file")
+    with col_file3: # <-- NEW UPLOADER
+        overnight_file = st.file_uploader("📈 Upload Overnight Audience File (.xlsx)", type=["xlsx"], key="overnight_file") # <-- NEW
+    with col_file4: # <-- NEW UPLOADER
+        macro_file = st.file_uploader("📋 4. BSA Duplicator File (Existence Check)", type=["xlsm", "xlsx"], key="macro_file") # <-- NEW
     
     st.write("---")
 
@@ -271,6 +277,9 @@ with market_checks_tab:
         st.checkbox(all_market_check_keys["impute_program_type"], key="impute_program_type")
         st.checkbox(all_market_check_keys["duration_limits"], key="duration_limits")
         st.checkbox(all_market_check_keys["live_date_integrity"], key="live_date_integrity")
+        st.checkbox(all_market_check_keys["update_audience_from_overnight"], key="update_audience_from_overnight") # <-- NEW
+        
+        st.checkbox(all_market_check_keys["dup_channel_existence"], key="dup_channel_existence") # <-- NEW CHECKBOX
 
     # ... (rest of the checkboxes remain here) ...
     with st.expander("2. Broadcaster/Platform Coverage (BROADCASTER/GLOBAL)"):
@@ -315,6 +324,10 @@ with market_checks_tab:
             st.error("⚠️ Please upload a BSR file before applying checks.")
         elif "check_f1_obligations" in active_checks and obligation_file is None:
             st.error("⚠️ **F1 Obligation Check Selected:** Please upload the F1 Obligation File.")
+        elif "update_audience_from_overnight" in active_checks and overnight_file is None: # <-- NEW CHECK
+            st.error("⚠️ Audience Upscale Check Selected: Please upload the Overnight Audience File.") # <-- NEW ERROR MESSAGE
+        elif "dup_channel_existence" in active_checks and macro_file is None: # <-- NEW DEPENDENCY CHECK
+            st.error("⚠️ Duplication Channel Existence Check Selected: Please upload the BSA Macro Duplicator File.")
         else:
             with st.spinner(f"Applying {len(active_checks)} checks on the backend..."):
                 
@@ -326,6 +339,13 @@ with market_checks_tab:
                 # CONDITIONAL ADDITION OF OBLIGATION FILE
                 if obligation_file:
                     files['obligation_file'] = (obligation_file.name, obligation_file.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+                # CONDITIONAL ADDITION OF OVERNIGHT FILE <--- NEW LOGIC
+                if overnight_file:
+                    files['overnight_file'] = (overnight_file.name, overnight_file.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+                if macro_file: # <-- ADD NEW FILE TO REQUEST
+                    files['macro_file'] = (macro_file.name, macro_file.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
                 # Send active checks as form data
                 data = {'checks': active_checks} 
