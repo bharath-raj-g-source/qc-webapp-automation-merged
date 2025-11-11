@@ -4,7 +4,7 @@ import pandas as pd
 from io import BytesIO
 import os
 
-# --- FastAPI Configuration ---
+# --- FastAPI Configuration (UNTOUCHED) ---
 # Update this if your FastAPI server is running on a different port or host
 # BACKEND_URL = "http://localhost:8000/api" 
 BACKEND_BASE_URL = os.environ.get("STREAMLIT_BACKEND_URL", "http://localhost:8000")
@@ -18,11 +18,16 @@ st.markdown("""
 This application interfaces with a FastAPI backend to handle both heavy-duty BSR QC processing and Laliga QC.
 """)
 
-# --- Use Tabs for Clear Separation ---
-qc_tab, sales_tab, market_checks_tab = st.tabs(["✅ Main QC Automation (BSR)", " Laliga ", " F1 Market Specific Checks"])
+# --- Use Tabs for Clear Separation (MODIFIED) ---
+main_qc_tab, laliga_qc_tab, f1_tab = st.tabs([
+    "✅ Main QC Automation", 
+    "⚽ Laliga Specific QC", 
+    "🏎️ F1 Market Specific Checks"
+])
 
-# --- Define all market check keys globally for management ---
+# --- Define all market check keys globally for management (UNTOUCHED) ---
 all_market_check_keys = {
+    # ... (all your keys remain here) ...
     # 1. Channel and Territory Review
     "check_latam_espn": "LATAM ESPN Channels: Ecuador and Venezuela missing",
     "check_italy_mexico": "Italy and Mexico: Duplications/consolidations",
@@ -63,60 +68,58 @@ all_market_check_keys = {
 
 
 # -----------------------------------------------------------
-#        ✅ QC AUTOMATION TAB (UNCHANGED)
+#        ✅ MAIN QC AUTOMATION TAB (MODIFIED)
 # -----------------------------------------------------------
 
-with qc_tab:
+with main_qc_tab:
     st.header("QC File Uploader")
     st.markdown("""
-    Upload your **Rosco**, **BSR**, and (optional) **Client Data file** below. 
-    QC checks will be run on the backend, and the result will be available for download.
+    Upload your **Rosco** and **BSR** files below. 
+    This will run the 9 general QC checks.
     """)
 
-    # --- File Upload Section ---
-    col1, col2, col3 = st.columns(3)
+    # --- File Upload Section (MODIFIED) ---
+    col1, col2 = st.columns(2)
     with col1:
         rosco_file = st.file_uploader("📘 Upload Rosco File (.xlsx)", type=["xlsx"], key="rosco")
     with col2:
         bsr_file = st.file_uploader("📗 Upload BSR File (.xlsx)", type=["xlsx"], key="bsr")
-    with col3:
-        data_file = st.file_uploader("📙 Upload Optional Data File (.xlsx)", type=["xlsx"], key="data")
+    # --- data_file uploader removed ---
     
     st.write("---")
 
-    # --- Run Button Logic (Calls Backend /run_qc) ---
-    if st.button("🚀 Run QC Checks on Backend"):
+    # --- Run Button Logic (Calls Backend /api/run_general_qc) ---
+    if st.button("🚀 Run General QC Checks"):
         if not rosco_file or not bsr_file:
             st.error("⚠️ Please upload both Rosco and BSR files before running QC.")
         else:
-            with st.spinner("Uploading files and running QC checks on backend... Please wait ⏳"):
+            with st.spinner("Uploading files and running General QC checks... Please wait ⏳"):
                 
-                # 1. Prepare files for multipart/form-data request
+                # 1. Prepare files
                 files = {
                     'rosco_file': (rosco_file.name, rosco_file.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
                     'bsr_file': (bsr_file.name, bsr_file.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
                 }
                 
-                if data_file:
-                    files['data_file'] = (data_file.name, data_file.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                # data_file logic removed
 
                 try:
-                    # 2. Make the POST request to the QC endpoint
-                    response = requests.post(f"{BACKEND_URL}/run_qc", files=files, timeout=600) 
+                    # 2. Make the POST request to YOUR new endpoint
+                    response = requests.post(f"{BACKEND_URL}/run_general_qc", files=files, timeout=600) 
 
                     if response.status_code == 200:
                         # 3. Extract filename and serve the downloaded file
                         content_disposition = response.headers.get("Content-Disposition")
-                        output_filename = "QC_Result_Download.xlsx" 
+                        output_filename = "General_QC_Result.xlsx" 
                         if content_disposition:
                             try:
                                 output_filename = content_disposition.split('filename=')[1].strip('"')
                             except IndexError:
                                 pass 
                         
-                        st.success("✅ QC completed successfully!")
+                        st.success("✅ General QC completed successfully!")
                         st.download_button(
-                            label="📥 Download QC Result Excel",
+                            label="📥 Download General QC Result",
                             data=response.content, 
                             file_name=output_filename,
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -134,115 +137,73 @@ with qc_tab:
                     st.error(f"❌ Connection or Timeout Error: Could not reach the backend. Check if FastAPI is running. Error: {e}")
 
 # -----------------------------------------------------------
-#         📈 LaligaDATA MANAGEMENT TAB (UNCHANGED)
+#         ⚽ LALIGA QC TAB (REPLACED)
 # -----------------------------------------------------------
 
-with sales_tab:
-    st.header("LaligaData Management")
-    st.markdown("Upload a new `laliga.csv` file to the backend for analysis.")
+with laliga_qc_tab:
+    st.header("⚽ Laliga Specific QC Checks")
+    st.markdown("""
+    Upload your **Rosco**, **BSR**, and **Macro Duplicator** files.
+    This will run the **Domestic Market Check** and **Duplicated Market Check**.
+    """)
+
+    # --- File Upload Section ---
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        laliga_rosco_file = st.file_uploader("📘 Upload Rosco File (.xlsx)", type=["xlsx"], key="laliga_rosco")
+    with col2:
+        laliga_bsr_file = st.file_uploader("📗 Upload BSR File (.xlsx)", type=["xlsx"], key="laliga_bsr")
+    with col3:
+        laliga_macro_file = st.file_uploader("📒 Upload Macro Duplicator File", type=["xlsx","xls","xlsm","xlsb"], key="laliga_macro")
     
-    st.subheader("1. Upload New LaligaData")
-    sales_file = st.file_uploader("📄 Upload LaligaFile (.csv)", type=["csv"], key="sales_csv")
-    
-    if st.button("⬆️ Upload LaligaCSV to Backend"):
-        if sales_file:
-            with st.spinner(f"Uploading {sales_file.name}..."):
+    st.write("---")
+
+    # --- Run Button Logic (Calls Backend /api/run_laliga_qc) ---
+    if st.button("⚙️ Run Laliga QC Checks"):
+        if not laliga_rosco_file or not laliga_bsr_file or not laliga_macro_file:
+            st.error("⚠️ Please upload all three files (Rosco, BSR, and Macro).")
+        else:
+            with st.spinner("Uploading files and running Laliga QC checks..."):
                 
-                # Prepare file for upload
                 files = {
-                    'file': (sales_file.name, sales_file.getbuffer(), 'text/csv'),
+                    'rosco_file': (laliga_rosco_file.name, laliga_rosco_file.getbuffer()),
+                    'bsr_file': (laliga_bsr_file.name, laliga_bsr_file.getbuffer()),
+                    'macro_file': (laliga_macro_file.name, laliga_macro_file.getbuffer()),
                 }
                 
                 try:
-                    upload_response = requests.post(f"{BACKEND_URL}/upload_csv", files=files)
-                    
-                    if upload_response.status_code == 200:
-                        st.success(f"✅ Upload successful: {upload_response.json().get('detail')}")
-                    else:
-                        st.error(f"❌ Upload failed: {upload_response.json().get('detail', 'Unknown error')}")
+                    # 2. Make the POST request to the Laliga QC endpoint
+                    response = requests.post(f"{BACKEND_URL}/run_laliga_qc", files=files, timeout=600) 
+
+                    if response.status_code == 200:
+                        content_disposition = response.headers.get("Content-Disposition")
+                        output_filename = "Laliga_QC_Result.xlsx"
+                        if content_disposition:
+                            try:
+                                output_filename = content_disposition.split('filename=')[1].strip('"')
+                            except IndexError: pass 
                         
+                        st.success("✅ Laliga QC completed successfully!")
+                        st.download_button(
+                            label="📥 Download Laliga QC Result",
+                            data=response.content, 
+                            file_name=output_filename,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                    else:
+                        try:
+                            error_detail = response.json().get("detail", "Unknown error.")
+                        except requests.JSONDecodeError:
+                            error_detail = response.text
+                        st.error(f"❌ Backend Error ({response.status_code}): {error_detail}")
+
                 except requests.exceptions.RequestException as e:
                     st.error(f"❌ Connection Error: {e}")
-        else:
-            st.warning("Please select a CSV file to upload.")
-
-
-    st.subheader("2. Analyze Data")
-    
-    # --- Summary Button Logic (Improved UI) ---
-    if st.button("Get Data Summary"):
-        with st.spinner("Fetching summary data from backend..."):
-            try:
-                summary_response = requests.get(f"{BACKEND_URL}/summary")
-                
-                if summary_response.status_code == 200:
-                    st.success("Summary data retrieved successfully.")
-                    
-                    # Convert JSON response (list of objects) into a DataFrame for display
-                    summary_json = summary_response.json()
-                    df_summary = pd.DataFrame.from_records(summary_json)
-                    
-                    # Set the 'index' column (variable name) as the actual DataFrame index
-                    df_summary = df_summary.rename(columns={'index': 'Variable'}).set_index('Variable')
-                    
-                    st.dataframe(df_summary.style.format('{:.2f}'), width=True)
-                    
-                else:
-                    st.error(f"❌ Failed to retrieve summary: {summary_response.json().get('detail', 'Unknown error')}")
-            except requests.exceptions.RequestException as e:
-                st.error(f"❌ Connection Error: {e}")
-            except Exception as e:
-                 st.error(f"❌ Data Parsing Error: Failed to process summary JSON. Ensure CSV headers are correct. Error: {e}")
-
-    # --- KPI Retrieval Section (Improved UI) ---
-    st.markdown("---")
-    country_query = st.text_input("Enter Country for KPI Analysis (Optional)", key="kpi_country")
-    if st.button("Get KPIs"):
-        with st.spinner(f"Fetching KPIs for {country_query if country_query else 'all markets'}..."):
-            params = {}
-            if country_query:
-                params['country'] = country_query
-                
-            try:
-                kpi_response = requests.get(f"{BACKEND_URL}/kpis", params=params)
-                
-                if kpi_response.status_code == 200:
-                    st.success("KPIs retrieved successfully.")
-                    kpi_data = kpi_response.json()
-                    
-                    # Display KPIs using st.metric in three columns
-                    kpi_cols = st.columns(4)
-                    
-                    # Use a dictionary mapping keys to display names and icons
-                    kpi_map = {
-                        "total_revenue": ("Total Revenue", "💰"),
-                        "total_profit": ("Total Profit", "✅"),
-                        "total_cost": ("Total Cost", "📉"),
-                        "number_of_purchases": ("Transactions", "🛒")
-                    }
-                    
-                    for i, (key, (label, icon)) in enumerate(kpi_map.items()):
-                        value_str = kpi_data.get(key, 'N/A')
-                        # Format number string for better display, removing str() needed for backend
-                        try:
-                            value = float(value_str)
-                            # Simple formatting for currency (assuming US-style currency)
-                            formatted_value = f"{icon} {value:,.0f}" if 'revenue' in key or 'profit' in key or 'cost' in key else f"{icon} {value:,.0f}"
-                        except ValueError:
-                            formatted_value = value_str
-
-                        with kpi_cols[i]:
-                            st.metric(label=label, value=formatted_value)
-                            
-                else:
-                    st.error(f"❌ Failed to retrieve KPIs: {kpi_response.json().get('detail', 'Unknown error')}")
-            except requests.exceptions.RequestException as e:
-                st.error(f"❌ Connection Error: {e}")
 
 # -----------------------------------------------------------
-#         🌍 MARKET SPECIFIC CHECKS TAB (MODIFIED)
+#         🏎️ F1 MARKET SPECIFIC CHECKS TAB (UNTOUCHED)
 # -----------------------------------------------------------
-with market_checks_tab:
+with f1_tab:
     st.header("🌍 Market Specific Checks & Channel Configuration")
     st.markdown("Upload the **BSR file** and the **F1 Obligation file** here to perform and log manual checks.")
 
@@ -316,7 +277,7 @@ with market_checks_tab:
     st.write("---")
 
 
-    # --- Run Processing Button (MODIFIED LOGIC) ---
+    # --- Run Processing Button (UNTOUCHED) ---
     if st.button("⚙️ Apply Selected Checks"):
         
         active_checks = [key for key in all_market_check_keys.keys() if st.session_state[key]]
@@ -377,31 +338,24 @@ with market_checks_tab:
                             # --- Display Summaries ---
                             st.subheader("Processing Summary")
                             if summaries:
-                                # Convert the list of dicts into a DataFrame for clean display
+                                # ... (summary display logic unchanged) ...
                                 df_summary = pd.DataFrame(summaries)
                                 
                                 df_summary_display = df_summary.copy()
 
-                                # Extract key details from the 'details' column 
                                 if 'details' in df_summary.columns:
                                     
-                                    # Use 'market_affected' if present, otherwise use 'markets_context'
                                     df_summary_display['Market'] = df_summary['details'].apply(
                                         lambda d: d.get('market_affected', d.get('markets_context', 'Global/N/A'))
                                     )
                                     
-                                    # --- Create a unified 'Change Count' column ---
                                     def get_change_count(d):
                                         if 'rows_removed' in d: return d['rows_removed']
                                         if 'total_issues_flagged' in d: return d['total_issues_flagged']
                                         if 'rows_added' in d: return d['rows_added']
-                                        
-                                        # NEW: Check for the 'broadcasters_missing' count from F1 check
                                         if 'broadcasters_missing' in d: return d['broadcasters_missing'] 
-                                        
                                         return 0
                                         
-                                    # Apply the unified logic
                                     df_summary_display['Change Count'] = df_summary['details'].apply(get_change_count)
                                     
                                     df_summary_display = df_summary_display.rename(columns={
@@ -409,7 +363,6 @@ with market_checks_tab:
                                         "status": "Status"
                                     })
                                     
-                                    # Final column selection
                                     df_summary_display = df_summary_display[[
                                         'Status', 
                                         'Operation', 
@@ -418,7 +371,6 @@ with market_checks_tab:
                                         'check_key'
                                     ]].set_index('check_key')
                                 else:
-                                    # Fallback if no details column exists 
                                     df_summary_display = df_summary_display.rename(columns={
                                         "description": "Operation", 
                                         "status": "Status"
