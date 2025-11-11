@@ -1,5 +1,4 @@
 import streamlit as st
-import requests
 import pandas as pd
 import os
 import time
@@ -10,28 +9,38 @@ from typing import Optional, List
 # --- Import ALL QC functions from ALL your files ---
 
 # Your colleague's original F1/QC functions
-from qc_checks import (
-    detect_period_from_rosco as rosco_detect_orig, # Alias to avoid conflict
-    load_bsr as load_bsr_orig,
-    period_check as period_check_orig,
-    completeness_check as completeness_check_orig,
-    overlap_duplicate_daybreak_check as overlap_orig,
-    program_category_check as program_cat_orig,
-    duration_check as duration_orig,
-    check_event_matchday_competition as event_matchday_orig,
-    market_channel_program_duration_check as market_channel_orig,
-    domestic_market_coverage_check as domestic_orig,
-    rates_and_ratings_check as rates_orig,
-    duplicated_markets_check as duplicated_orig,
-    country_channel_id_check as country_id_orig,
-    client_lstv_ott_check as client_lstv_orig,
-    color_excel as color_excel_orig,
-    generate_summary_sheet as summary_orig,
-)
-from C_data_processing_f1 import BSRValidator
+try:
+    from qc_checks import (
+        detect_period_from_rosco as rosco_detect_orig, # Alias to avoid conflict
+        load_bsr as load_bsr_orig,
+        period_check as period_check_orig,
+        completeness_check as completeness_check_orig,
+        overlap_duplicate_daybreak_check as overlap_orig,
+        program_category_check as program_cat_orig,
+        duration_check as duration_orig,
+        check_event_matchday_competition as event_matchday_orig,
+        market_channel_program_duration_check as market_channel_orig,
+        domestic_market_coverage_check as domestic_orig,
+        rates_and_ratings_check as rates_orig,
+        duplicated_markets_check as duplicated_orig,
+        country_channel_id_check as country_id_orig,
+        client_lstv_ott_check as client_lstv_orig,
+        color_excel as color_excel_orig,
+        generate_summary_sheet as summary_orig,
+    )
+    from C_data_processing_f1 import BSRValidator
+except ImportError as e:
+    st.error(f"Failed to import colleague's files (qc_checks.py, C_data_processing_f1.py): {e}")
+    st.stop()
+
 
 # Your 11-check QC functions
-import qc_checks_1 as qc_general
+try:
+    import qc_checks_1 as qc_general
+except ImportError as e:
+    st.error(f"Failed to import your QC file (qc_checks_1.py): {e}")
+    st.stop()
+
 
 # -------------------- ⚙️ Folder setup --------------------
 BASE_DIR = os.getcwd()
@@ -53,6 +62,8 @@ def load_config():
         return None
 
 config = load_config()
+if config is None:
+    st.stop()
 
 # -------------------- 🌐 Streamlit UI --------------------
 st.set_page_config(page_title="Data Processing App", layout="wide")
@@ -280,7 +291,6 @@ with f1_tab:
             st.session_state[key] = False
 
     with st.expander("1. Channel and Territory Review", expanded=True):
-        # ... (all checkboxes) ...
         st.subheader("General Market Checks")
         st.checkbox(all_market_check_keys["check_latam_espn"], key="check_latam_espn")
         st.checkbox(all_market_check_keys["check_italy_mexico"], key="check_italy_mexico")
@@ -297,7 +307,6 @@ with f1_tab:
         st.checkbox(all_market_check_keys["dup_channel_existence"], key="dup_channel_existence")
 
     with st.expander("2. Broadcaster/Platform Coverage (BROADCASTER/GLOBAL)"):
-        # ... (all checkboxes) ...
         st.subheader("Global/Platform Adds")
         st.checkbox(all_market_check_keys["check_youtube_global"], key="check_youtube_global")
         st.subheader("Individual Broadcaster Confirmations")
@@ -313,7 +322,6 @@ with f1_tab:
 
 
     with st.expander("3. Removals and Recreations"):
-        # ... (all checkboxes) ...
         st.subheader("Removals (Ensure these are absent)")
         st.checkbox(all_market_check_keys["remove_andorra"], key="remove_andorra")
         st.checkbox(all_market_check_keys["remove_serbia"], key="remove_serbia")
@@ -341,9 +349,64 @@ with f1_tab:
             st.error("⚠️ Duplication Channel Existence Check Selected: Please upload the BSA Macro Duplicator File.")
         else:
             with st.spinner(f"Applying {len(active_checks)} checks..."):
+                # --- THIS IS THE START OF THE TRY BLOCK ---
                 try:
                     # --- Save files temporarily ---
                     bsr_file_path = os.path.join(UPLOAD_FOLDER, f1_bsr_file.name)
                     with open(bsr_file_path, "wb") as f: f.write(f1_bsr_file.getbuffer())
                     
-                    obligation
+                    obligation_path = None
+                    if f1_obligation_file:
+                        obligation_path = os.path.join(UPLOAD_FOLDER, f1_obligation_file.name)
+                        with open(obligation_path, "wb") as f: f.write(f1_obligation_file.getbuffer())
+                    
+                    overnight_path = None
+                    if f1_overnight_file:
+                        overnight_path = os.path.join(UPLOAD_FOLDER, f1_overnight_file.name)
+                        with open(overnight_path, "wb") as f: f.write(f1_overnight_file.getbuffer())
+                    
+                    macro_path = None
+                    if f1_macro_file:
+                        macro_path = os.path.join(UPLOAD_FOLDER, f1_macro_file.name)
+                        with open(macro_path, "wb") as f: f.write(f1_macro_file.getbuffer())
+
+                    # --- Run F1 Logic Directly ---
+                    validator = BSRValidator(
+                        bsr_path=bsr_file_path, 
+                        obligation_path=obligation_path, 
+                        overnight_path=overnight_path, 
+                        macro_path=macro_path
+                    ) 
+                    
+                    status_summaries = validator.market_check_processor(checks)
+                    df_processed = validator.df
+                    
+                    # --- Generate Output File ---
+                    output_filename = f"Processed_BSR_{os.path.splitext(f1_bsr_file.name)[0]}_{int(time.time())}.xlsx"
+                    output_path = os.path.join(OUTPUT_FOLDER, output_filename)
+                    
+                    df_processed.to_excel(output_path, index=False)
+                    
+                    st.success(f"✅ F1 checks completed successfully!")
+                    
+                    # --- Display Summaries ---
+                    st.subheader("Processing Summary")
+                    if status_summaries:
+                        df_summary = pd.DataFrame(status_summaries)
+                        st.dataframe(df_summary, use_container_width=True) # Simplified display
+                    else:
+                        st.info("No specific operational summaries were returned.")
+
+                    # --- Provide Download Button ---
+                    st.markdown("---")
+                    with open(output_path, "rb") as f:
+                        st.download_button(
+                            label="📥 Download Processed F1 File",
+                            data=f,
+                            file_name=output_filename,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                
+                # --- THIS IS THE CORRECTED 'except' BLOCK ---
+                except Exception as e:
+                    st.error(f"❌ An error occurred during F1 checks: {e}")
