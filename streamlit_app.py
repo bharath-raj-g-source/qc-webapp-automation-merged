@@ -1,10 +1,15 @@
 import streamlit as st
 import pandas as pd
+import requests
 import os
 import time
 import shutil
 import json
 from typing import Optional, List
+
+BACKEND_BASE_URL = os.environ.get("STREAMLIT_BACKEND_URL", "http://localhost:8000")
+BACKEND_URL = BACKEND_BASE_URL + "/api"
+
 
 # --- Import ALL QC functions from ALL your files ---
 
@@ -83,11 +88,12 @@ except Exception:
 
 
 # --- Use Tabs for Clear Separation (MODIFIED) ---
-home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab = st.tabs([
+home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab , epl_tab= st.tabs([
     " Home Page", 
     " Main QC Automation", 
     " Laliga Specific QC", 
-    " F1 Market Specific Checks"
+    " F1 Market Specific Checks",
+    " EPL Specific Checks"
 ])
 
 # --- Define all market check keys globally for management ---
@@ -128,6 +134,7 @@ all_market_check_keys = {
     "recreate_viaplay": "Viaplay: Recreate based on a full market of lives",
     "recreate_disney_latam": "Disney+ Latam: Recreate based on a full market of lives",
 }
+
 
 
 with home_page_tab:
@@ -696,3 +703,21 @@ with f1_tab:
 
                 except requests.exceptions.RequestException as e:
                     st.error(f"❌ Connection Error: Could not reach the backend. Error: {e}")
+
+with epl_tab:
+    # Use st.title, st.header, or st.markdown for clear visual separation
+    st.header("EPL Specific Checks")
+    
+    # Display the "Work in Progress" message
+    st.info("⚠️ **Work in Progress:** This tab is currently under development. Please check back later for the available checks and automation features for the English Premier League.")
+    
+    # You can optionally add a placeholder or a brief roadmap
+    st.subheader("Expected Features:")
+    st.markdown("""
+    * Verification of market types specific to the EPL (e.g., specific outrights).
+    * Check for correct team names and player mappings.
+    * Automated checks for specific data fields.
+    """)
+    
+    st.markdown("---")
+    st.markdown("Thank you for your patience!")
