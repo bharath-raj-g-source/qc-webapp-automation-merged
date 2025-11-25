@@ -532,7 +532,8 @@ with f1_tab:
     with c2:
         f1_obligation = st.file_uploader("Obligation File (.xlsx)", type=["xlsx"], key="f1_ob")
     with c3:
-        f1_overnight = st.file_uploader("Overnight File (.xlsx)", type=["xlsx"), key="f1_on")
+        # FIX: The list bracket for 'type' was closed incorrectly here.
+        f1_overnight = st.file_uploader("Overnight File (.xlsx)", type=["xlsx"], key="f1_on") 
     with c4:
         f1_macro = st.file_uploader("Macro File (.xlsx/.xlsm)", type=["xlsm", "xlsx", "xls", "xlsb"], key="f1_macro")
 
