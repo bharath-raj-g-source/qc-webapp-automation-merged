@@ -364,13 +364,13 @@ with main_qc_tab:
                     with open(rosco_path, "wb") as f: f.write(main_rosco_file.getbuffer())
                     with open(bsr_path, "wb") as f: f.write(main_bsr_file.getbuffer())
 
-                    # --- Run YOUR 9 QC Checks Directly ---
+                                        # --- Run YOUR 9 QC Checks Directly ---
                     start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
                     df = qc_general.load_bsr(bsr_path, col_map["bsr"])
-                    
+
                     df = qc_general.period_check(df, start_date, end_date, col_map["bsr"])
-                    df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"])
-                    df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"])
+                    df = qc_general.completeness_check(df, col_map["bsr"], rules)  # FIXED
+                    df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules.get("overlap_check", {}))  # FIXED
                     df = qc_general.program_category_check(bsr_path, df, col_map, rules["program_category"], file_rules)
                     df = qc_general.check_event_matchday_competition(df, bsr_path, col_map, file_rules)
                     df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
