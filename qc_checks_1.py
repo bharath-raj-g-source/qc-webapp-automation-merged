@@ -180,7 +180,8 @@ def period_check(df, start_date, end_date, bsr_cols):
 
 
 # ----------------------------- 4️⃣ Completeness Check -----------------------------
-def completeness_check(df, bsr_cols, rules=None):
+# FIX APPLIED: Ensure 'rules' is a required argument to match the call in streamlit_app.py
+def completeness_check(df, bsr_cols, rules):
     
     # --- Map logical names to actual columns (from config) ---
     colmap = {
@@ -201,7 +202,8 @@ def completeness_check(df, bsr_cols, rules=None):
 
     # --- Get rules from config ---
     live_types = set(rules.get('live_types', ['live', 'repeat', 'delayed']))
-    relaxed_types = set(rules.get('relaxed_types', ['highlights'],['magazine']))
+    # FIX: Corrected list syntax in rules.get for relaxed_types
+    relaxed_types = set(rules.get('relaxed_types', ['highlights', 'magazine']))
 
     # --- Iterate rows
     for idx, row in df.iterrows():
@@ -229,6 +231,7 @@ def completeness_check(df, bsr_cols, rules=None):
             if not est_present and not met_present:
                 missing.append("Both Audience fields are empty")
             elif est_present and met_present:
+                # The original code logic flagged this as an issue:
                 missing.append("Both Audience fields are filled")
 
         # 3️⃣ Type-based (Home/Away)
@@ -1002,21 +1005,20 @@ def rates_and_ratings_check(df, bsr_cols):
     met_col = _find_column(df, bsr_cols['aud_metered'])
     
     if est_col is None:
-        df[est_col] = pd.NA # Create dummy column to avoid errors
+        # FIX: Cannot create dummy column if col name is None. Use actual check if present.
         logging.warning("Rates/Ratings Check: Audience Estimates column not found.")
     if met_col is None:
-        df[met_col] = pd.NA
         logging.warning("Rates/Ratings Check: Audience Metered column not found.")
 
-    present_est = df[est_col].apply(_is_present)
-    present_met = df[met_col].apply(_is_present)
+    present_est = df[est_col].apply(_is_present) if est_col else pd.Series(False, index=df.index)
+    present_met = df[met_col].apply(_is_present) if met_col else pd.Series(False, index=df.index)
 
     both_empty_mask = (~present_est) & (~present_met)
     both_present_mask = (present_est) & (present_met)
     exactly_one_mask = (present_est ^ present_met)
 
     df["Rates_Ratings_QC_OK"] = True
-    df["Rates_Ratings_QC_Remark"] = ""
+    df["Rates_Ratings_QC_Remark"] = "Valid: one rating source available"
     
     df.loc[both_empty_mask, "Rates_Ratings_QC_OK"] = False
     df.loc[both_empty_mask, "Rates_Ratings_QC_Remark"] = "Missing audience ratings (both empty)"
@@ -1024,9 +1026,6 @@ def rates_and_ratings_check(df, bsr_cols):
     df.loc[both_present_mask, "Rates_Ratings_QC_OK"] = False
     df.loc[both_present_mask, "Rates_Ratings_QC_Remark"] = "Invalid: both metered and estimated present"
     
-    df.loc[exactly_one_mask, "Rates_Ratings_QC_OK"] = True
-    df.loc[exactly_one_mask, "Rates_Ratings_QC_Remark"] = "Valid: one rating source available"
-
     return df
 
 # -----------------------------------------------------------
@@ -1051,6 +1050,7 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
         # --- Load and clean Macro Data ---
         macro_sheet = file_rules.get('macro_sheet_name', 'Data Core')
         header_row = file_rules.get('macro_header_row', 1)
+        # Assuming header_row is 0-indexed if using header=header_row directly
         macro_df = pd.read_excel(macro_path, sheet_name=macro_sheet, header=header_row, dtype=str)
         macro_df.columns = macro_df.columns.str.strip()
 
@@ -1191,6 +1191,7 @@ def country_channel_id_check(df, bsr_cols):
     return df
 
 # -----------------------------------------------------------
+# FIX APPLIED: Ensure 'rules' is a required argument to match the call in streamlit_app.py
 def client_lstv_ott_check(df, bsr_cols, rules):
     
     df["Client_LSTV_OTT_OK"] = True
@@ -1294,4 +1295,3 @@ def generate_summary_sheet(output_path, df, file_rules):
     for r in dataframe_to_rows(summary_df, index=False, header=True):
         ws.append(r)
     wb.save(output_path)
-
