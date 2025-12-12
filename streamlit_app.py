@@ -139,27 +139,56 @@ all_market_check_keys = {
     #EPL
 }
 
-all_market_check_keys_epl = {
-    "impute_lt_live_status": "L/T Live Imputation: Flag program type based on 'L/T' keyword in Combined col", # Using the L/T check key
-    "consolidate_gillete_soccer": "Program Consolidation: Flag sequential 'Gillete Soccer' programs for merging (Gap <= 30min)",
-    "check_sky_showcase_live": "Sky Showcase Live Status Check (UK)",
-    "standardize_uk_ire_region" : "Region Standardization: Correct UK/Ireland Region field to 'Europe' and standardize market names",
-    "check_fixture_vs_case" : "Checks for Capital VS AND Small vs",
-    "check_pan_balkans_serbia_parity" : "Checks equal count in pan_balkans and serbia",
-    "audit_multi_match_status" : "Checking for these keywords 'GOAL RUSH', 'KONFERENZ', 'CONFERENCE'",
-    "check_date_time_format_integrity" : "Checking Time Integrity",
-    "check_live_broadcast_uniqueness" : "Checking 1 live for based on these col 'Market', 'TV-Channel', 'Competition', 'Date'",
-    "audit_channel_line_item_count" : "Channel line item count (New Tab)",
-    "check_combined_archive_status" : "Flag any row with archive in Combined column",
-    "suppress_duplicated_audience" : "Flag if it is a Duplicated Market and has audience ",
-    "harmonize_uk_ire_program_descriptions_strict" : "Flag where description not same in specified channels ",
-    "check_game_of_the_day_match" : "Checking for Game of the day in CDT/OVN",
-    "check_non_metered_primary_market_audience" : "Checking Non metered channel audience is zero",
-    "check_legacy_mapping" : "Flag Legancy Name ",
-    "check_premier_league_october_obligation" : "Cross Checking of channels from CDT/OVN Sheet ",
+# all_market_check_keys_epl = {
+#     "consolidate_gillete_soccer": "Program Consolidation: Flag sequential 'Gillete Soccer' programs for merging (Gap <= 30min)",
+#     "impute_lt_live_status": "L/T Live Imputation: Flag program type based on 'L/T' keyword in Combined col", # Using the L/T check key
+#     "check_sky_showcase_live": "Sky Showcase Live Status Check (UK)",
+#     "standardize_uk_ire_region" : "Region Standardization: Correct UK/Ireland Region field to 'Europe' and standardize market names",
+#     "check_fixture_vs_case" : "Checks for Capital VS AND Small vs",
+#     "check_pan_balkans_serbia_parity" : "Checks equal count in pan_balkans and serbia",
+#     "audit_multi_match_status" : "Checking for these keywords 'GOAL RUSH', 'KONFERENZ', 'CONFERENCE'",
+#     "check_date_time_format_integrity" : "Checking Time Integrity",
+#     "check_live_broadcast_uniqueness" : "Checking 1 live for based on these col 'Market', 'TV-Channel', 'Competition', 'Date'",
+#     "audit_channel_line_item_count" : "Channel line item count (New Tab)",
+#     "check_combined_archive_status" : "Flag any row with archive in Combined column",
+#     "suppress_duplicated_audience" : " Flag if it is a Duplicated Market and has audience ",
+#     "harmonize_uk_ire_program_descriptions_strict" : "Flag where description not same in specified channels(UK/ Ireland) ",
+#     "check_game_of_the_day_match" : "Checking for Game of the day in CDT/OVN",
+#     "check_non_metered_primary_market_audience" : "Checking Non metered channel audience is zero",
+#     "check_legacy_mapping" : "Flag Legancy Name ",
+#     # "check_premier_league_october_obligation" : "Cross Checking of channels from CDT/OVN Sheet ",
+#     # "check_star_sports_3_consolidation" : "Prioritizing Malayalam region over Start Sports 3 ",
+#     # "check_bsa_nielsen_audience_presence" : "Make sure Non-metered Data (Time Bands) has Audience ",    
+#     "check_source_mediatype_validity": "Only Predefined Values in the Source,Source 2,Media Type",
 
- 
-}
+# }
+
+all_market_check_keys_epl = {
+    # --- Content Classification & Standardization ---
+    "impute_lt_live_status": "Auto-Live Imputation (L/T Tag): Automatically sets the program status to 'Live' if the 'L/T' tag is detected in the program data.",
+    "consolidate_gillete_soccer": "Gillete Soccer Part Consolidation: Merges sequential program parts labeled 'Gillete Soccer' into a single entry if the gap between them is less than 30 minutes.",
+    "check_sky_showcase_live": "Sky Showcase Live Anomaly: Enforces that 'Sky Showcase' (UK) must not have any program marked as 'Live'.",
+    "standardize_uk_ire_region": "Regional Standardization (UK/Ireland): Enforces the region name 'Europe' for all entries originating from the United Kingdom and Ireland.",
+    "check_fixture_vs_case": "Fixture Name Case Standardization: Standardizes the match separator from 'VS' or 'Vs' to the required lowercase 'vs' in program fixture names.",
+    "check_pan_balkans_serbia_parity": "Pan-Balkans/Serbia Row Count Parity: Ensures the Pan-Balkans market and the Serbia market have the exact same number of program rows.",
+    "check_legacy_mapping": "Legacy Naming Convention Audit: Verifies that 'Market' and 'Channel' names adhere strictly to the established and required standard legacy mapping list.",
+    "audit_multi_match_status": "Multi-Match Keyword Verification: Checks for 'Goal Rush' or 'Konferenz' in the description, and strictly ensures the mandatory 'MultiMatch' keyword is present in the fixture.",
+    "check_date_time_format_integrity": "Date/Time Format Integrity Check: Scans and flags any data entry that does not conform to the required standard format for dates and times.",
+    "check_source_mediatype_validity": "Source/Media Type Validation: Confirms that values in the 'Source' and 'Media Type' columns are exclusively drawn from a predefined, allowed list.",
+    "check_live_broadcast_uniqueness": "Live Overlap Conflict Check: Identifies and flags instances where two 'Live' programs are scheduled on the same channel with overlapping time slots.",
+    "check_game_of_the_day_match": "Game of the Day Data Update: Verifies and updates 'Game of the Day' program rows using the definitive data sourced from the Overnight report.",
+    "audit_channel_line_item_count": "Channel Line Item Count Report: Generates a report sheet detailing the total number of programs listed for each individual channel.",
+    "check_combined_archive_status": "Archive Status Flag: Explicitly flags any row where the program status is marked as 'Archive' for review and subsequent removal from the active data set.",
+    "suppress_duplicated_audience": "Audience Suppression (Duplication): Sets the audience figure to zero for any row identified as 'Duplicated from BSA' to prevent inflated counts.",
+    "check_non_metered_primary_market_audience": "Non-Metered Audience Zero Check: Ensures the 'Audience' column is zero for specified primary market data sources that should not contain metered audience data.",
+    "harmonize_uk_ire_program_descriptions_strict": "Description Sync (UK/Ireland): Copies the program description from the Ireland entry to the UK entry only if the start times are an exact match."
+
+
+    # "check_premier_league_october_obligation" : "Cross Checking of channels from CDT/OVN Sheet ",
+    # "check_star_sports_3_consolidation" : "Prioritizing Malayalam region over Start Sports 3 ",
+    # "check_bsa_nielsen_audience_presence" : "Make sure Non-metered Data (Time Bands) has Audience ",    
+    
+    }
 
 with home_page_tab:
     # --- Custom CSS for Styling ---
@@ -653,7 +682,7 @@ with f1_tab:
                     st.markdown("---")
                     with open(output_path, "rb") as f:
                         st.download_button(
-                            label="📥 Download Processed F1 File",
+                            label="📥 Download Processed EPL File",
                             data=f,
                             file_name=output_filename,
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -681,14 +710,79 @@ with epl_tab:
         "audit_channel_line_item_count": "Counts line items per channel to ensure they meet the expected volume thresholds.",
         "check_combined_archive_status": "Verifies that Archive statuses are correctly reflected in the Combined column.",
         "suppress_duplicated_audience": "Identifies and suppresses audience numbers that appear to be duplicated across regions.",
-        "harmonize_uk_ire_program_descriptions_strict": "Strictly formats program descriptions for UK/IRE markets to a standard naming convention.",
+        "harmonize_uk_ire_program_descriptions_strict": "Strictly Validates program descriptions for UK/IRE markets to a standard naming convention.",
         "check_game_of_the_day_match": "Verifies the 'Game of the Day' logic matches the primary broadcast schedule.",
         "check_non_metered_primary_market_audience": "Audits audience numbers for non-metered markets to ensure they are not zero.",
         "check_legacy_mapping": "Cross-references channel names against the legacy mapping table.",
-        "check_premier_league_october_obligation": "Cross Checking of channels from CDT/OVN Sheet",
-
+        # "check_premier_league_october_obligation": "Cross Checking of channels from CDT/OVN Sheet",
+        # "check_star_sports_3_consolidation": "Prioritizing Malayalam over Star Sports 3",
+        # "check_bsa_nielsen_audience_presence": "Make sure Non-metered Data (Time Bands) has Audience",
+        "check_source_mediatype_validity": "Only Predefined Values in the Source,Source 2,Media Type",
         
     }
+
+    epl_tooltips = {
+    # --- Content & Classification ---
+    "impute_lt_live_status": (
+        "Flags missing 'Live' status despite the presence of the 'L/T' tag."
+    ),
+    "consolidate_gillete_soccer": (
+        "Flags short, sequential 'Gillete Soccer' entries that should be combined."
+    ),
+    "check_sky_showcase_live": (
+        "Flags any program incorrectly marked as 'Live' on Sky Showcase (UK)."
+    ),
+    "standardize_uk_ire_region": (
+        "Flags any non-'Europe' region name for UK/Ireland data."
+    ),
+    "check_fixture_vs_case": (
+        "Flags fixture names using uppercase/mixed-case separators."
+    ),
+     "check_pan_balkans_serbia_parity": (
+        "Flags a discrepancy in the row count between Pan-Balkans and Serbia data."
+    ),
+    "audit_multi_match_status": (
+        "Flags programs missing the 'MultiMatch' fixture tag despite having a multi-match keyword in the description."
+    ),
+     "check_date_time_format_integrity": (
+        "Flags malformed or non-standard date and time strings."
+    ),
+    "check_live_broadcast_uniqueness": (
+        "Flags scheduling conflicts (time/channel) for live broadcasts."
+    ),
+    "audit_channel_line_item_count": (
+        "Generates a metric for overall channel data volume (used for monitoring, not flagging an anomaly directly)."
+    ),
+    "check_combined_archive_status": (
+        "Flags data rows that should be removed or moved to an archive storage."
+    ),
+     "suppress_duplicated_audience": (
+        "Flags non-zero audience figures on duplicated rows."
+    ),
+    "harmonize_uk_ire_program_descriptions_strict": (
+        "Flags descriptions that are out of sync between UK and Ireland entries with matching times."
+    ),
+    "check_game_of_the_day_match": (
+        "Flags 'Game of the Day' rows that do not align with the Overnight report data."
+    ),
+    "check_non_metered_primary_market_audience": (
+        "Flags unexpected non-zero audience data from non-metered sources."
+    ),
+     "check_legacy_mapping": (
+        "Flags any 'Market' or 'Channel' name that is non-standard or deprecated."
+    ),
+
+    # "live_date_integrity": (
+    #     "Compares 'Live' programs against the Official F1 Schedule and flags rows where the date does not match the official calendar."
+    # ),
+     
+    # "check_premier_league_october_obligation": "Cross Checking of channels from CDT/OVN Sheet",
+    # "check_star_sports_3_consolidation": "Prioritizing Malayalam over Star Sports 3",
+    # "check_bsa_nielsen_audience_presence": "Make sure Non-metered Data (Time Bands) has Audience",
+     "check_source_mediatype_validity": (
+        "Validates that 'Source', 'Source 2', and 'Media Type' columns contain only authorized values (e.g., 'BC Data', 'Linear'), flagging deviations."
+    ),
+}
 
     # --- Dedicated Upload for Manual Checks (MODIFIED) ---
     col_file1, col_file2, col_file3,col_file4 = st.columns(4)
@@ -737,7 +831,11 @@ with epl_tab:
         check_ui("check_game_of_the_day_match")
         check_ui("check_non_metered_primary_market_audience")
         check_ui("check_legacy_mapping")
-        check_ui("check_premier_league_october_obligation")
+        # check_ui("check_premier_league_october_obligation")
+        # check_ui("check_star_sports_3_consolidation")
+        # check_ui("check_bsa_nielsen_audience_presence")
+        check_ui("check_source_mediatype_validity")
+        
 
     st.write("---")
         # --- Configuration Input Fields (NEW SECTION) ---
